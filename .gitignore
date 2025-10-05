@@ -1,2 +1,5 @@
 venv
 test.json
+data
+nohup.out
+core/__pycache__
