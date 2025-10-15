@@ -90,3 +90,24 @@ def logout_user(token):
 
     verified, _ = verify_token(token)
     return not verified
+
+
+def get_countries():
+    url = "https://static.pw.live/auth-fe/assets/json/app-constants.json"
+    headers = get_default_headers()
+
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+
+    data = response.json()
+    formatted = [
+        {
+            "country_abbr": item.get("c"),
+            "flag": item.get("e"),
+            "country_name": item.get("n"),
+            "country_code": item.get("d"),
+        }
+        for item in data
+    ]
+
+    return formatted
