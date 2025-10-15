@@ -1,5 +1,4 @@
-import requests
-from core.utils import get_default_headers, handle_response
+from core.utils import get_default_headers, safe_request
 
 
 def fetch_dpp_tests(
@@ -16,8 +15,7 @@ def fetch_dpp_tests(
     }
 
     headers = get_default_headers(auth_token=token)
-    response = requests.get(url, headers=headers, params=params)
-    success, error_msg, data = handle_response(response)
+    success, error_msg, data = safe_request("GET", url, headers=headers, params=params)
     if not success:
         return []
 
@@ -27,7 +25,7 @@ def fetch_dpp_tests(
         test_data = test_info.get("test", {})
 
         tag = test_info.get("tag", "")
-        attempted = True if tag.lower() == "reattempt" else False
+        attempted = tag.lower() == "reattempt"
         attempt_id = (
             test_info.get("testStudentMapping", {}).get("_id") if attempted else None
         )
@@ -35,8 +33,9 @@ def fetch_dpp_tests(
         result_data = None
         if attempt_id:
             result_url = f"https://api.penpencil.co/v3/test-service/tests/{test_data.get('_id')}/my-result"
-            result_response = requests.get(result_url, headers=headers)
-            success_result, _, result_json = handle_response(result_response)
+            success_result, _, result_json = safe_request(
+                "GET", result_url, headers=headers
+            )
             if success_result:
                 perf = result_json.get("data", {}).get("yourPerformance", {})
                 result_data = {
@@ -75,15 +74,15 @@ def fetch_dpp_tests(
 def fetch_dpp_test_sol(token, attempt_id):
     url = f"https://api.penpencil.co/v3/test-service/tests/mapping/{attempt_id}/preview-test"
     headers = get_default_headers(auth_token=token)
-    response = requests.get(url, headers=headers)
-    success, error_msg, data = handle_response(response)
+    success, error_msg, data = safe_request("GET", url, headers=headers)
     if not success:
         return []
 
     questions_data = []
-    difficulty_levels_map = {}
-    for lvl in data.get("data", {}).get("difficultyLevels", []):
-        difficulty_levels_map[lvl.get("level")] = lvl.get("title")
+    difficulty_levels_map = {
+        lvl.get("level"): lvl.get("title")
+        for lvl in data.get("data", {}).get("difficultyLevels", [])
+    }
 
     for q in data.get("data", {}).get("questions", []):
         question_info = q.get("question", {})
@@ -98,7 +97,6 @@ def fetch_dpp_test_sol(token, attempt_id):
             question_info.get("difficultyLevel"), "Unknown"
         )
 
-        # Map solutions ids to their text using options
         option_map = {
             opt["_id"]: opt.get("texts", {}).get("en")
             for opt in question_info.get("options", [])
@@ -108,7 +106,6 @@ def fetch_dpp_test_sol(token, attempt_id):
             option_map.get(sid) for sid in solutions_ids if sid in option_map
         ]
 
-        # Map solution descriptions
         sol_desc_list = []
         for sol in question_info.get("solutionDescription", []):
             img_en = sol.get("imageIds", {}).get("en", {})

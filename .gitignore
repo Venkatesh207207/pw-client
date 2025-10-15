@@ -6,3 +6,8 @@ core/__pycache__
 test.json
 testabc.py
 test123.py
+test/__pycache__
+.pytest_cache
+test/test_auth.py
+test/test_dpp_quiz.py
+test/test_fetch.py

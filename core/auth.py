@@ -1,12 +1,11 @@
-import requests
 import json
 import uuid
-from core.utils import get_default_headers, handle_response
+from core.utils import get_default_headers, safe_request
 
 
 def send_otp(country_code, mobile_no):
     url = "https://api.penpencil.co/v1/users/get-otp"
-    querystring = {"smsType": "0", "fallback": "true"}
+    params = {"smsType": "0", "fallback": "true"}
     payload = {
         "username": str(mobile_no),
         "countryCode": str(country_code),
@@ -14,16 +13,15 @@ def send_otp(country_code, mobile_no):
     }
 
     headers = get_default_headers()
-    response = requests.post(
-        url, data=json.dumps(payload), headers=headers, params=querystring
+    success, error_msg, _ = safe_request(
+        "POST", url, headers=headers, params=params, data=json.dumps(payload)
     )
-    success, error_msg, _ = handle_response(response)
     return (True, None) if success else (False, error_msg)
 
 
 def verify_otp(mobile_no, otp):
     url = "https://api.penpencil.co/v3/oauth/token"
-    querystring = {"smsType": "0", "fallback": "true"}
+    params = {"smsType": "0", "fallback": "true"}
     payload = {
         "username": str(mobile_no),
         "otp": str(otp),
@@ -33,10 +31,10 @@ def verify_otp(mobile_no, otp):
     }
 
     headers = get_default_headers()
-    response = requests.post(
-        url, data=json.dumps(payload), headers=headers, params=querystring
+    success, error_msg, result = safe_request(
+        "POST", url, headers=headers, params=params, data=json.dumps(payload)
     )
-    success, error_msg, result = handle_response(response)
+
     if not success:
         return False, error_msg
 
@@ -45,6 +43,7 @@ def verify_otp(mobile_no, otp):
 
     token = f"Bearer {data.get('access_token', '')}"
     expires_in = data.get("expires_in")
+
     user_dict = {
         "user_id": user.get("id"),
         "f_name": user.get("firstName"),
@@ -63,13 +62,15 @@ def verify_otp(mobile_no, otp):
 
 def verify_token(token):
     url = "https://api.penpencil.co/v3/oauth/verify-token"
-    headers = get_default_headers(auth_token=token)
-    headers.update(
-        {"organizationid": "5eb393ee95fab7468a79d189", "randomid": str(uuid.uuid4())}
+    headers = get_default_headers(
+        auth_token=token,
+        extra_headers={
+            "organizationid": "5eb393ee95fab7468a79d189",
+            "randomid": str(uuid.uuid4()),
+        },
     )
 
-    response = requests.post(url, headers=headers)
-    success, error_msg, result = handle_response(response)
+    success, error_msg, result = safe_request("POST", url, headers=headers)
     if not success:
         return False, error_msg
 
@@ -80,11 +81,13 @@ def logout_user(token):
     url = "https://api.penpencil.co/v1/oauth/logout"
     device_id = token.replace("Bearer ", "")
     payload = {"deviceId": device_id}
-    headers = get_default_headers(auth_token=token, include_origin=False)
-    headers["client-type"] = "WEB"
+    headers = get_default_headers(
+        auth_token=token,
+        include_origin=False,
+        extra_headers={"client-type": "WEB"},
+    )
 
-    response = requests.post(url, data=json.dumps(payload), headers=headers)
-    success, _, _ = handle_response(response)
+    success, _, _ = safe_request("POST", url, headers=headers, data=json.dumps(payload))
     if not success:
         return False
 
@@ -95,11 +98,13 @@ def logout_user(token):
 def get_countries():
     url = "https://static.pw.live/auth-fe/assets/json/app-constants.json"
     headers = get_default_headers()
-
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-
-    data = response.json()
+    success, error_msg, result = safe_request("GET", url, headers=headers)
+    if not success:
+        return []
+    try:
+        data = result if isinstance(result, list) else result.get("data", [])
+    except Exception:
+        return []
     formatted = [
         {
             "country_abbr": item.get("c"),
@@ -109,5 +114,4 @@ def get_countries():
         }
         for item in data
     ]
-
     return formatted
