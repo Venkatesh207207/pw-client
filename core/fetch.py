@@ -174,3 +174,33 @@ def get_ch_content(token, batch_id, subject_id, chapter_ids, content_type="ALL")
                         )
 
     return all_docs
+
+
+def fetch_announcements(token, batch_id, page=1):
+    url = f"https://api.penpencil.co/v1/batches/{batch_id}/announcement"
+    params = {"page": page}
+    headers = get_default_headers(auth_token=token)
+
+    success, error_msg, data = safe_request("GET", url, headers=headers, params=params)
+
+    if not success or not data:
+        return []
+
+    announcements = []
+    for ann in data.get("data", []):
+        announcement_info = {
+            "announcement": ann.get("announcement"),
+            "_id": ann.get("_id"),
+            "scheduleTime": ann.get("scheduleTime"),
+        }
+
+        attachment = ann.get("attachment")
+        if attachment:
+            endlink = attachment.get("baseUrl") + attachment.get("key")
+            announcement_info["endlink"] = endlink
+        else:
+            announcement_info["attachment"] = None
+
+        announcements.append(announcement_info)
+
+    return announcements
