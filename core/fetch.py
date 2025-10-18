@@ -1,21 +1,26 @@
-from core.utils import get_default_headers, safe_request
+from core.utils import (
+    get_default_headers,
+    safe_request,
+    make_api_url,
+    safe_get_json_field,
+    standardize_response,
+)
 
 
 def get_batches(token, amount="paid"):
-    url = "https://api.penpencil.co/batch-service/v1/batches/purchased-batches"
+    url = make_api_url("batch-service", "v1", "batches", "purchased-batches")
     params = {"type": "ALL", "amount": amount}
 
     headers = get_default_headers(
-        auth_token=token,
-        extra_headers={"client-type": "WEB"},
+        auth_token=token, extra_headers={"client-type": "WEB"}
     )
-
     success, error_msg, result = safe_request(
         "GET", url, headers=headers, params=params
     )
     if not success:
-        return False, error_msg
+        return standardize_response(False, error_msg)
 
+    batches_data = safe_get_json_field(result, "data", default=[])
     batches = [
         {
             "batch_id": item.get("_id"),
@@ -24,26 +29,22 @@ def get_batches(token, amount="paid"):
             "batch_start": item.get("startDate"),
             "batch_end": item.get("endDate"),
         }
-        for item in result.get("data", [])
+        for item in batches_data
     ]
 
-    return True, batches
+    return standardize_response(True, data=batches)
 
 
 def get_sub(token, batch_id):
-    url = f"https://api.penpencil.co/v3/batches/{batch_id}/details"
-
+    url = make_api_url("v3", "batches", batch_id, "details")
     headers = get_default_headers(
-        auth_token=token,
-        extra_headers={"client-type": "WEB"},
+        auth_token=token, extra_headers={"client-type": "WEB"}
     )
-
     success, error_msg, result = safe_request("GET", url, headers=headers)
     if not success:
-        return False, error_msg
+        return standardize_response(False, error_msg)
 
-    data = result.get("data", {})
-
+    data = safe_get_json_field(result, "data", default={})
     batch_info = {
         "batch_id": data.get("_id"),
         "batch_name": data.get("batchName"),
@@ -52,7 +53,7 @@ def get_sub(token, batch_id):
         "subjects": [],
     }
 
-    for subj in data.get("subjects", []):
+    for subj in safe_get_json_field(data, "subjects", default=[]):
         subject_info = {
             "subject_id": subj.get("_id"),
             "subject_name": subj.get("subject"),
@@ -60,7 +61,7 @@ def get_sub(token, batch_id):
             "teachers": [],
         }
 
-        for teacher in subj.get("teacherIds", []):
+        for teacher in safe_get_json_field(subj, "teacherIds", default=[]):
             subject_info["teachers"].append(
                 {
                     "t_id": teacher.get("_id"),
@@ -78,15 +79,13 @@ def get_sub(token, batch_id):
                 "lecture": subj.get("lectureCount"),
             }
         )
-
         batch_info["subjects"].append(subject_info)
 
-    return True, batch_info
+    return standardize_response(True, data=batch_info)
 
 
 def get_ch(token, batch_id, subject_ids):
-    url = f"https://api.penpencil.co/batch-service/v1/batch-tags/{batch_id}/topics"
-
+    url = make_api_url("batch-service", "v1", "batch-tags", batch_id, "topics")
     subject_ids_str = (
         ",".join(map(str, subject_ids))
         if isinstance(subject_ids, list)
@@ -95,18 +94,16 @@ def get_ch(token, batch_id, subject_ids):
     params = {"batchSubjectIds": subject_ids_str}
 
     headers = get_default_headers(
-        auth_token=token,
-        extra_headers={"client-type": "WEB"},
+        auth_token=token, extra_headers={"client-type": "WEB"}
     )
-
     success, error_msg, result = safe_request(
         "GET", url, headers=headers, params=params
     )
     if not success:
-        return False, error_msg
+        return standardize_response(False, error_msg)
 
     chapters_by_subject = {}
-    for item in result.get("data", {}).get("data", []):
+    for item in safe_get_json_field(result, "data", "data", default=[]):
         type_id = item.get("typeId")
         chapter = {
             "chapter_id": item.get("_id"),
@@ -119,10 +116,9 @@ def get_ch(token, batch_id, subject_ids):
             "lecture_videos": item.get("lectureVideos"),
             "chapter_slug": item.get("slug"),
         }
-
         chapters_by_subject.setdefault(type_id, []).append(chapter)
 
-    return True, chapters_by_subject
+    return standardize_response(True, data=chapters_by_subject)
 
 
 def get_ch_content(token, batch_id, subject_id, chapter_ids, content_type="ALL"):
@@ -135,11 +131,18 @@ def get_ch_content(token, batch_id, subject_id, chapter_ids, content_type="ALL")
     content_types_to_fetch = (
         [content_type] if content_type != "ALL" else ["NOTES", "DPP_PDF"]
     )
-
     all_docs = []
 
     headers = get_default_headers(auth_token=token)
-    base_url = f"https://api.penpencil.co/batch-service/v3/batch-subject-schedules/{batch_id}/subject/{subject_id}/contents"
+    base_url = make_api_url(
+        "batch-service",
+        "v3",
+        "batch-subject-schedules",
+        batch_id,
+        "subject",
+        subject_id,
+        "contents",
+    )
 
     for chapter_id in chapter_ids:
         for ctype in content_types_to_fetch:
@@ -157,9 +160,9 @@ def get_ch_content(token, batch_id, subject_id, chapter_ids, content_type="ALL")
             if not success or not data:
                 continue
 
-            for item in data.get("data", []):
-                date = item.get("data", {}).get("date", "")
-                for hw in item.get("data", {}).get("homeworkIds", []):
+            for item in safe_get_json_field(data, "data", default=[]):
+                date = safe_get_json_field(item, "data", "date", default="")
+                for hw in safe_get_json_field(item, "data", "homeworkIds", default=[]):
                     doc_type = hw.get("note")
                     for att in hw.get("attachmentIds", []):
                         all_docs.append(
@@ -173,21 +176,20 @@ def get_ch_content(token, batch_id, subject_id, chapter_ids, content_type="ALL")
                             }
                         )
 
-    return all_docs
+    return standardize_response(True, data=all_docs)
 
 
 def fetch_announcements(token, batch_id, page=1):
-    url = f"https://api.penpencil.co/v1/batches/{batch_id}/announcement"
+    url = make_api_url("v1", "batches", batch_id, "announcement")
     params = {"page": page}
     headers = get_default_headers(auth_token=token)
 
     success, error_msg, data = safe_request("GET", url, headers=headers, params=params)
-
     if not success or not data:
-        return []
+        return standardize_response(False, error_msg)
 
     announcements = []
-    for ann in data.get("data", []):
+    for ann in safe_get_json_field(data, "data", default=[]):
         announcement_info = {
             "announcement": ann.get("announcement"),
             "_id": ann.get("_id"),
@@ -196,11 +198,12 @@ def fetch_announcements(token, batch_id, page=1):
 
         attachment = ann.get("attachment")
         if attachment:
-            endlink = attachment.get("baseUrl") + attachment.get("key")
-            announcement_info["endlink"] = endlink
+            announcement_info["endlink"] = (attachment.get("baseUrl", "") or "") + (
+                attachment.get("key", "") or ""
+            )
         else:
             announcement_info["attachment"] = None
 
         announcements.append(announcement_info)
 
-    return announcements
+    return standardize_response(True, data=announcements)

@@ -1,10 +1,16 @@
-from core.utils import get_default_headers, safe_request
+from core.utils import (
+    get_default_headers,
+    safe_request,
+    make_api_url,
+    safe_get_json_field,
+    standardize_response,
+)
 
 
 def fetch_dpp_tests(
     token, batch_id, subject_id, chapter_id, page=1, limit=20, dpp_type="ALL"
 ):
-    url = "https://api.penpencil.co/v3/test-service/tests/new-dpp-list"
+    url = make_api_url("v3", "test-service", "tests", "new-dpp-list")
     params = {
         "page": page,
         "batchId": batch_id,
@@ -17,27 +23,33 @@ def fetch_dpp_tests(
     headers = get_default_headers(auth_token=token)
     success, error_msg, data = safe_request("GET", url, headers=headers, params=params)
     if not success:
-        return []
+        return standardize_response(False, error_msg)
 
     tests = []
-    for item in data.get("data", []):
-        test_info = item.get("dppQuizDetails", {})
-        test_data = test_info.get("test", {})
+    for item in safe_get_json_field(data, "data", default=[]):
+        test_info = safe_get_json_field(item, "dppQuizDetails", default={})
+        test_data = safe_get_json_field(test_info, "test", default={})
 
         tag = test_info.get("tag", "")
         attempted = tag.lower() == "reattempt"
         attempt_id = (
-            test_info.get("testStudentMapping", {}).get("_id") if attempted else None
+            safe_get_json_field(test_info, "testStudentMapping", "_id")
+            if attempted
+            else None
         )
 
         result_data = None
         if attempt_id:
-            result_url = f"https://api.penpencil.co/v3/test-service/tests/{test_data.get('_id')}/my-result"
+            result_url = make_api_url(
+                "v3", "test-service", "tests", test_data.get("_id"), "my-result"
+            )
             success_result, _, result_json = safe_request(
                 "GET", result_url, headers=headers
             )
             if success_result:
-                perf = result_json.get("data", {}).get("yourPerformance", {})
+                perf = safe_get_json_field(
+                    result_json, "data", "yourPerformance", default={}
+                )
                 result_data = {
                     "total_marks": perf.get("totalScore"),
                     "user_marks": perf.get("userScore"),
@@ -67,26 +79,27 @@ def fetch_dpp_tests(
                 "performance": result_data,
             }
         )
-
-    return tests
+    return standardize_response(True, data=tests)
 
 
 def fetch_dpp_test_sol(token, attempt_id):
-    url = f"https://api.penpencil.co/v3/test-service/tests/mapping/{attempt_id}/preview-test"
+    url = make_api_url(
+        "v3", "test-service", "tests", "mapping", attempt_id, "preview-test"
+    )
     headers = get_default_headers(auth_token=token)
     success, error_msg, data = safe_request("GET", url, headers=headers)
     if not success:
-        return []
+        return standardize_response(False, error_msg)
 
-    questions_data = []
     difficulty_levels_map = {
         lvl.get("level"): lvl.get("title")
-        for lvl in data.get("data", {}).get("difficultyLevels", [])
+        for lvl in safe_get_json_field(data, "data", "difficultyLevels", default=[])
     }
 
-    for q in data.get("data", {}).get("questions", []):
-        question_info = q.get("question", {})
-        en_image = question_info.get("imageIds", {}).get("en", {})
+    questions_data = []
+    for q in safe_get_json_field(data, "data", "questions", default=[]):
+        question_info = safe_get_json_field(q, "question", default={})
+        en_image = safe_get_json_field(question_info, "imageIds", "en", default={})
         question_id = en_image.get("_id")
         question_name = en_image.get("name")
         endlink = (en_image.get("baseUrl", "") or "") + (en_image.get("key", "") or "")
@@ -98,7 +111,7 @@ def fetch_dpp_test_sol(token, attempt_id):
         )
 
         option_map = {
-            opt["_id"]: opt.get("texts", {}).get("en")
+            opt["_id"]: safe_get_json_field(opt, "texts", "en")
             for opt in question_info.get("options", [])
         }
         solutions_ids = question_info.get("solutions", [])
@@ -108,7 +121,7 @@ def fetch_dpp_test_sol(token, attempt_id):
 
         sol_desc_list = []
         for sol in question_info.get("solutionDescription", []):
-            img_en = sol.get("imageIds", {}).get("en", {})
+            img_en = safe_get_json_field(sol, "imageIds", "en", default={})
             sol_desc_list.append(
                 {
                     "sol_id": img_en.get("_id"),
@@ -132,4 +145,4 @@ def fetch_dpp_test_sol(token, attempt_id):
             }
         )
 
-    return questions_data
+    return standardize_response(True, data=questions_data)
