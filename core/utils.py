@@ -50,6 +50,12 @@ def safe_request(method, url, headers=None, params=None, data=None, timeout=10):
         response = requests.request(
             method, url, headers=headers, params=params, data=data, timeout=timeout
         )
+        try:
+            parsed = response.json()
+            if isinstance(parsed, list):
+                return True, None, parsed
+        except json.JSONDecodeError:
+            pass
         return handle_response(response)
     except requests.Timeout:
         return False, "Request timed out", None

@@ -97,21 +97,26 @@ def logout_user(token):
 
 def get_countries():
     url = "https://static.pw.live/auth-fe/assets/json/app-constants.json"
-    headers = get_default_headers()
-    success, error_msg, result = safe_request("GET", url, headers=headers)
-    if not success:
+    headers = get_default_headers(
+        include_origin=True,
+        extra_headers={
+            "accept": "*/*",
+            "accept-language": "en-US,en;q=0.6",
+            "cache-control": "no-cache",
+            "pragma": "no-cache",
+            "referer": "https://www.pw.live/",
+        },
+    )
+    success, error, result = safe_request("GET", url, headers=headers)
+    if not success or not isinstance(result, list):
         return []
-    try:
-        data = result if isinstance(result, list) else result.get("data", [])
-    except Exception:
-        return []
-    formatted = [
+    return [
         {
-            "country_abbr": item.get("c"),
-            "flag": item.get("e"),
-            "country_name": item.get("n"),
-            "country_code": item.get("d"),
+            "country_abbr": c.get("c"),
+            "country_flag": c.get("e"),
+            "country_name": c.get("n"),
+            "country_code": c.get("d"),
         }
-        for item in data
+        for c in result
+        if isinstance(c, dict)
     ]
-    return formatted
