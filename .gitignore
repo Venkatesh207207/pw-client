@@ -14,3 +14,5 @@ test/test_fetch.py
 test/test_dashboard.py
 data
 data/.env
+endpoints.md
+implinks.md

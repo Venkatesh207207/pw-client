@@ -1,8 +1,11 @@
 import json
 import requests
+from pathlib import Path
 
 API_BASE = "https://api.penpencil.co"
 ORG_ID = "5eb393ee95fab7468a79d189"
+DATA_DIR = Path("cache")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_default_headers(
