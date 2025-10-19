@@ -1,10 +1,22 @@
+import os
+import json
 from core.utils import (
     get_default_headers,
     safe_request,
     make_api_url,
     safe_get_json_field,
     standardize_response,
+    get_env_var,
+    standard_response,
+    DATA_DIR,
+    ENV_PATH,
 )
+from core.cache import load_cache, save_cache
+from datetime import datetime, timezone
+from core.logging import setup_logging
+from dotenv import load_dotenv
+
+logger = setup_logging()
 
 
 def fetch_dpp_tests(
@@ -146,3 +158,281 @@ def fetch_dpp_test_sol(token, attempt_id):
         )
 
     return standardize_response(True, data=questions_data)
+
+
+def helper_fetch_dpp_tests(
+    batch_id: str,
+    subject_id: str,
+    chapter_id: str,
+    page: int = 1,
+    limit: int = 20,
+    dpp_type: str = "ALL",
+    refetch: bool = False,
+):
+    """
+    Helper function for fetching DPP tests with caching support.
+
+    - Reads TOKEN from .env using get_env_var()
+    - Uses cache for 60 minutes unless refetch=True
+    - Provides standard_response and consistent logging
+    """
+
+    logger.info(
+        "Fetching DPP tests list",
+        extra={
+            "batch_id": batch_id,
+            "subject_id": subject_id,
+            "chapter_id": chapter_id,
+            "refetch": refetch,
+        },
+    )
+
+    try:
+        # --- Validate input ---
+        if not all([batch_id, subject_id, chapter_id]):
+            logger.error("Missing required identifiers for DPP fetch")
+            return standard_response(
+                "error", errors=["batch_id, subject_id, and chapter_id are required."]
+            )
+
+        # --- Get token from .env ---
+        token = get_env_var("TOKEN")
+        if not token:
+            logger.error("TOKEN not found in .env")
+            return standard_response(
+                "error", errors=["Authentication token not found in environment."]
+            )
+
+        cache_name = (
+            f"dpp_tests_{batch_id}_{subject_id}_{chapter_id}_{dpp_type}_p{page}"
+        )
+        cache_path = DATA_DIR / f"{cache_name}.json"
+
+        # --- Try cache (unless refetch is requested) ---
+        if not refetch:
+            cached_data = load_cache(cache_name)
+            if cached_data:
+                cache_age_minutes = None
+                human_age = None
+
+                if cache_path.exists():
+                    try:
+                        raw = json.loads(cache_path.read_text())
+                        ts_str = raw.get("timestamp") or raw.get("_metadata", {}).get(
+                            "timestamp"
+                        )
+                        if ts_str:
+                            ts = datetime.fromisoformat(ts_str)
+                            delta = datetime.now(timezone.utc) - ts
+                            cache_age_minutes = int(delta.total_seconds() / 60)
+                            hours = cache_age_minutes // 60
+                            minutes = cache_age_minutes % 60
+                            human_age = (
+                                f"{hours}h {minutes}m ago"
+                                if hours
+                                else f"{minutes} minutes ago"
+                            )
+                    except Exception:
+                        logger.debug("Failed to compute cache age metadata")
+
+                logger.info(
+                    f"DPP tests loaded from cache ({human_age or 'unknown age'})",
+                    extra={
+                        "batch_id": batch_id,
+                        "subject_id": subject_id,
+                        "chapter_id": chapter_id,
+                        "source": "cache",
+                        "cache_age_minutes": cache_age_minutes,
+                    },
+                )
+
+                return standard_response(
+                    "success",
+                    data={
+                        "tests": cached_data,
+                        "cache_age_minutes": cache_age_minutes,
+                        "cache_age_human": human_age,
+                        "from_cache": True,
+                    },
+                )
+
+        # --- Fetch from API ---
+        dpp_resp = fetch_dpp_tests(
+            token,
+            batch_id,
+            subject_id,
+            chapter_id,
+            page=page,
+            limit=limit,
+            dpp_type=dpp_type,
+        )
+
+        # Note: fetch_dpp_tests() returns {"success": bool, "error": str, "data": [...]}
+        if not dpp_resp.get("success"):
+            logger.error("Failed to fetch DPP tests from API", extra=dpp_resp)
+            return standard_response("error", errors=["Unable to fetch DPP tests."])
+
+        data = dpp_resp.get("data", [])
+        if not data:
+            logger.warning("No DPP tests found in API response")
+            return standard_response("error", errors=["No DPP tests found."])
+
+        # --- Cache for 60 minutes ---
+        ttl_minutes = 60
+        ttl_hours = ttl_minutes / 60
+        save_cache(cache_name, data, ttl_minutes=ttl_minutes)
+
+        logger.info(
+            f"DPP tests fetched and cached successfully (TTL: {ttl_hours} hour)",
+            extra={
+                "batch_id": batch_id,
+                "subject_id": subject_id,
+                "chapter_id": chapter_id,
+                "ttl_minutes": ttl_minutes,
+                "ttl_hours": ttl_hours,
+                "count": len(data),
+            },
+        )
+
+        return standard_response(
+            "success",
+            data={
+                "tests": data,
+                "cache_ttl_minutes": ttl_minutes,
+                "cache_ttl_human": f"{ttl_hours} hour",
+                "from_cache": False,
+            },
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Error fetching DPP tests",
+            extra={
+                "batch_id": batch_id,
+                "subject_id": subject_id,
+                "chapter_id": chapter_id,
+                "error": str(exc),
+            },
+        )
+        return standard_response("error", errors=["Failed to fetch DPP tests."])
+
+
+def helper_fetch_dpp_test_sol(attempt_id: str, refetch: bool = False):
+    """
+    Helper function for fetching DPP test solutions with caching support.
+
+    - Reads TOKEN from .env
+    - Uses cache for 6 hours unless refetch=True
+    - Wraps fetch_dpp_test_sol() with standard_response and structured logging
+    """
+
+    logger.info(
+        "Fetching DPP test solutions",
+        extra={"attempt_id": attempt_id, "refetch": refetch},
+    )
+
+    try:
+        if not attempt_id:
+            logger.error("No attempt_id provided")
+            return standard_response("error", errors=["attempt_id is required."])
+
+        # --- Load token ---
+        token = get_env_var("TOKEN")
+        if not token:
+            logger.error("TOKEN not found in .env")
+            return standard_response(
+                "error", errors=["Authentication token not found in environment."]
+            )
+
+        cache_name = f"dpp_test_sol_{attempt_id}"
+        cache_path = DATA_DIR / f"{cache_name}.json"
+
+        # --- Try cache (unless refetch=True) ---
+        if not refetch:
+            cached_data = load_cache(cache_name)
+            if cached_data:
+                cache_age_minutes = None
+                human_age = None
+
+                if cache_path.exists():
+                    try:
+                        raw = json.loads(cache_path.read_text())
+                        ts_str = raw.get("timestamp") or raw.get("_metadata", {}).get(
+                            "timestamp"
+                        )
+                        if ts_str:
+                            ts = datetime.fromisoformat(ts_str)
+                            delta = datetime.now(timezone.utc) - ts
+                            cache_age_minutes = int(delta.total_seconds() / 60)
+                            hours = cache_age_minutes // 60
+                            minutes = cache_age_minutes % 60
+                            human_age = (
+                                f"{hours}h {minutes}m ago"
+                                if hours
+                                else f"{minutes} minutes ago"
+                            )
+                    except Exception:
+                        logger.debug("Failed to compute cache age metadata")
+
+                logger.info(
+                    f"DPP test solutions loaded from cache ({human_age or 'unknown age'})",
+                    extra={
+                        "attempt_id": attempt_id,
+                        "source": "cache",
+                        "cache_age_minutes": cache_age_minutes,
+                    },
+                )
+
+                return standard_response(
+                    "success",
+                    data={
+                        "solutions": cached_data,
+                        "cache_age_minutes": cache_age_minutes,
+                        "cache_age_human": human_age,
+                        "from_cache": True,
+                    },
+                )
+
+        # --- Fetch from API ---
+        sol_resp = fetch_dpp_test_sol(token, attempt_id)
+        if not sol_resp.get("success"):
+            logger.error("Failed to fetch DPP test solutions from API", extra=sol_resp)
+            return standard_response("error", errors=["Unable to fetch DPP solutions."])
+
+        data = sol_resp.get("data", [])
+        if not data:
+            logger.warning("Empty DPP test solutions received from API")
+            return standard_response("error", errors=["No DPP test solutions found."])
+
+        # --- Cache the result for 6 hours ---
+        ttl_minutes = 360
+        ttl_hours = ttl_minutes // 60
+        save_cache(cache_name, data, ttl_minutes=ttl_minutes)
+
+        logger.info(
+            f"DPP test solutions fetched and cached successfully (TTL: {ttl_hours} hours)",
+            extra={
+                "attempt_id": attempt_id,
+                "ttl_minutes": ttl_minutes,
+                "ttl_hours": ttl_hours,
+            },
+        )
+
+        return standard_response(
+            "success",
+            data={
+                "solutions": data,
+                "cache_ttl_minutes": ttl_minutes,
+                "cache_ttl_human": f"{ttl_hours} hours",
+                "from_cache": False,
+            },
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Error fetching DPP test solutions",
+            extra={"attempt_id": attempt_id, "error": str(exc)},
+        )
+        return standard_response(
+            "error", errors=["Failed to fetch DPP test solutions."]
+        )
