@@ -1,3 +1,5 @@
 requests
 pytest
 fastapi
+python-json-logger
+python-dotenv

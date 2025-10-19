@@ -1,11 +1,34 @@
 import json
 import requests
 from pathlib import Path
+from dotenv import load_dotenv, set_key, find_dotenv
+import os
 
 API_BASE = "https://api.penpencil.co"
 ORG_ID = "5eb393ee95fab7468a79d189"
 DATA_DIR = Path("cache")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+if not ENV_PATH.exists():
+    ENV_PATH.touch()
+
+load_dotenv(ENV_PATH)
+
+
+def get_env_var(key: str, default: str = None) -> str:
+    load_dotenv(ENV_PATH)
+    return os.getenv(key, default)
+
+
+def set_env_var(key: str, value: str):
+    if not ENV_PATH.exists():
+        ENV_PATH.touch()
+
+    if ENV_PATH.is_dir():
+        raise IsADirectoryError(f"{ENV_PATH} is a directory, expected a file.")
+
+    set_key(str(ENV_PATH), key, value)
 
 
 def get_default_headers(
@@ -90,4 +113,12 @@ def standardize_response(success, error_msg=None, data=None):
         "success": bool(success),
         "error": error_msg if not success else None,
         "data": data if success else None,
+    }
+
+
+def standard_response(status: str, data: dict = None, errors: list = None) -> dict:
+    return {
+        "status": status,
+        "data": data or {},
+        "errors": errors or [],
     }

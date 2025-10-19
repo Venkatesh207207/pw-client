@@ -16,3 +16,9 @@ data
 data/.env
 endpoints.md
 implinks.md
+script.py
+test-helper.py
+logs
+cache/countries_list.json
+cache/user_details.json
+.env
