@@ -31,8 +31,8 @@ def send_otp(country_code, mobile_no):
     url = make_api_url("v1", "users", "get-otp")
     params = {"smsType": "0", "fallback": "true"}
     payload = {
-        "username": str(mobile_no),
-        "countryCode": str(country_code),
+        "username": mobile_no,
+        "countryCode": country_code,
         "organizationId": ORG_ID,
     }
 
@@ -47,8 +47,8 @@ def verify_otp(mobile_no, otp):
     url = make_api_url("v3", "oauth", "token")
     params = {"smsType": "0", "fallback": "true"}
     payload = {
-        "username": str(mobile_no),
-        "otp": str(otp),
+        "username": mobile_no,
+        "otp": otp,
         "client_id": "system-admin",
         "grant_type": "password",
         "organizationId": ORG_ID,
